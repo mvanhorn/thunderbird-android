@@ -104,6 +104,8 @@ public class MessagingControllerTest extends K9RobolectricTest {
     @Mock
     private LocalStore localStore;
     @Mock
+    private OutboxStateRepository outboxStateRepository;
+    @Mock
     private NotificationController notificationController;
     @Mock
     private NotificationStrategy notificationStrategy;
@@ -347,6 +349,36 @@ public class MessagingControllerTest extends K9RobolectricTest {
     }
 
     @Test
+    public void sendPendingMessagesSynchronous_withRetriesExceeded_shouldNotSendMessage() throws MessagingException {
+        setupAccountWithMessageToSend(SendState.RETRIES_EXCEEDED);
+
+        controller.sendPendingMessagesSynchronous(account);
+
+        verify(backend, never()).sendMessage(localMessageToSend1);
+    }
+
+    @Test
+    public void sendPendingMessagesSynchronous_withManualRetryAndRetriesExceeded_shouldSendMessage()
+        throws MessagingException {
+        setupAccountWithMessageToSend(SendState.RETRIES_EXCEEDED);
+
+        controller.sendPendingMessagesSynchronous(account, true);
+
+        verify(backend).sendMessage(localMessageToSend1);
+        verify(outboxStateRepository).removeOutboxState(42L);
+    }
+
+    @Test
+    public void sendPendingMessagesSynchronous_withManualRetryAndReadyState_shouldSendMessage()
+        throws MessagingException {
+        setupAccountWithMessageToSend();
+
+        controller.sendPendingMessagesSynchronous(account, true);
+
+        verify(backend).sendMessage(localMessageToSend1);
+    }
+
+    @Test
     public void sendPendingMessagesSynchronous_shouldSetAndRemoveSendInProgressFlag() throws MessagingException {
         setupAccountWithMessageToSend();
 
@@ -386,27 +418,33 @@ public class MessagingControllerTest extends K9RobolectricTest {
     }
 
     @Test
-    public void sendPendingMessagesSynchronous_withAuthenticationFailure_shouldNotify() throws MessagingException {
-        setupAccountWithMessageToSend();
+    public void sendPendingMessagesSynchronous_withManualRetryAndAuthenticationFailure_shouldNotify()
+        throws MessagingException {
+        setupAccountWithMessageToSend(SendState.RETRIES_EXCEEDED);
         doThrow(new AuthenticationFailedException("Test")).when(backend).sendMessage(localMessageToSend1);
 
-        controller.sendPendingMessagesSynchronous(account);
+        controller.sendPendingMessagesSynchronous(account, true);
 
         verify(notificationController).showAuthenticationErrorNotification(account, false);
     }
 
     @Test
-    public void sendPendingMessagesSynchronous_withCertificateFailure_shouldNotify() throws MessagingException {
-        setupAccountWithMessageToSend();
+    public void sendPendingMessagesSynchronous_withManualRetryAndCertificateFailure_shouldNotify()
+        throws MessagingException {
+        setupAccountWithMessageToSend(SendState.RETRIES_EXCEEDED);
         doThrow(new CertificateValidationException(emptyList(), new CertificateChainException("", null, null)))
             .when(backend).sendMessage(localMessageToSend1);
 
-        controller.sendPendingMessagesSynchronous(account);
+        controller.sendPendingMessagesSynchronous(account, true);
 
         verify(notificationController).showCertificateErrorNotification(account, false);
     }
 
     private void setupAccountWithMessageToSend() throws MessagingException {
+        setupAccountWithMessageToSend(SendState.READY);
+    }
+
+    private void setupAccountWithMessageToSend(SendState sendState) throws MessagingException {
         account.setSentFolderId(SENT_FOLDER_ID);
         when(localStore.getFolder(SENT_FOLDER_ID)).thenReturn(sentFolder);
         when(sentFolder.getDatabaseId()).thenReturn(SENT_FOLDER_ID);
@@ -416,8 +454,7 @@ public class MessagingControllerTest extends K9RobolectricTest {
         when(localMessageToSend1.getDatabaseId()).thenReturn(42L);
         when(localMessageToSend1.getHeader(K9.IDENTITY_HEADER)).thenReturn(new String[]{});
 
-        OutboxState outboxState = new OutboxState(SendState.READY, 0, null, 0);
-        OutboxStateRepository outboxStateRepository = mock(OutboxStateRepository.class);
+        OutboxState outboxState = new OutboxState(sendState, 0, null, 0);
         when(outboxStateRepository.getOutboxState(42L)).thenReturn(outboxState);
 
         when(localStore.getOutboxStateRepository()).thenReturn(outboxStateRepository);

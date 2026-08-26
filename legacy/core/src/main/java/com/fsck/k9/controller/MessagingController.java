@@ -1498,6 +1498,11 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
      */
     public void sendPendingMessages(final LegacyAccountDto account,
         MessagingListener listener) {
+        sendPendingMessages(account, listener, false);
+    }
+
+    public void sendPendingMessages(final LegacyAccountDto account,
+        MessagingListener listener, final boolean retryFailedMessages) {
         putBackground("sendPendingMessages", listener, new Runnable() {
             @Override
             public void run() {
@@ -1506,7 +1511,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                     showSendingNotificationIfNecessary(account);
 
                     try {
-                        sendPendingMessagesSynchronous(account);
+                        sendPendingMessagesSynchronous(account, retryFailedMessages);
                     } finally {
                         clearSendingNotificationIfNecessary(account);
                     }
@@ -1547,6 +1552,11 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
      */
     @VisibleForTesting
     protected void sendPendingMessagesSynchronous(final LegacyAccountDto account) {
+        sendPendingMessagesSynchronous(account, false);
+    }
+
+    @VisibleForTesting
+    protected void sendPendingMessagesSynchronous(final LegacyAccountDto account, boolean retryFailedMessages) {
         Exception lastFailure = null;
         try {
             if (isAuthenticationProblem(account, false)) {
@@ -1601,7 +1611,8 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                     OutboxState outboxState = outboxStateRepository.getOutboxState(messageId);
 
                     SendState sendState = outboxState.getSendState();
-                    if (sendState != SendState.READY) {
+                    boolean retryMessage = retryFailedMessages && sendState == SendState.RETRIES_EXCEEDED;
+                    if (sendState != SendState.READY && !retryMessage) {
                         Log.v("Skipping sending message %s (reason: %s - %s)", message.getUid(),
                             sendState.getDatabaseName(), outboxState.getSendError());
 

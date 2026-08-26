@@ -69,7 +69,7 @@ class MessagingControllerWrapper(
 
     fun sendPendingMessages(id: AccountId, listener: MessagingListener?) {
         val account = getAccountDtoOrThrow(id)
-        messagingController.sendPendingMessages(account, listener)
+        messagingController.sendPendingMessages(account, listener, true)
     }
 
     fun setFlagForThreads(id: AccountId, threadIds: List<Long>, flag: Flag, newState: Boolean) {
